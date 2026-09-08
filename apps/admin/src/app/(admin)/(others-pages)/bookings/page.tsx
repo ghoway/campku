@@ -56,7 +56,7 @@ export default function BookingsPage() {
         `/staff/bookings?${qs.toString()}`
       )
       .then((res) => {
-        setBookings(res.data);
+        setBookings(Array.isArray(res.data) ? res.data : []);
         setMeta(res.meta);
       })
       .catch((e) => setError(e.message))
@@ -119,7 +119,7 @@ export default function BookingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {bookings.map((b) => (
+                    {(bookings || []).map((b) => (
                       <tr key={b.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/[0.02]">
                         <td className="py-3 px-4 text-sm font-medium text-gray-800 dark:text-white/90">{b.bookingCode}</td>
                         <td className="py-3 px-4 text-sm text-gray-700 dark:text-gray-400">{b.property?.name}</td>

@@ -6,15 +6,15 @@ import { $api } from "@/lib/api";
 type Promo = {
   id: string;
   code: string;
+  name: string | null;
   description: string | null;
-  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountType: "PERCENTAGE" | "FIXED";
   discountValue: string;
-  maxDiscount: string | null;
-  minSpend: string | null;
-  maxUses: number | null;
+  minBookingAmount: string;
+  maxUses: number;
   currentUses: number;
-  startDate: string;
-  endDate: string;
+  startAt: string;
+  expiresAt: string | null;
   isActive: boolean;
 };
 
@@ -26,9 +26,11 @@ export default function PromosPage() {
 
   // Form state
   const [code, setCode] = useState("");
+  const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
+  const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
   const [discountValue, setDiscountValue] = useState("");
+  const [minBookingAmount, setMinBookingAmount] = useState("");
   const [maxUses, setMaxUses] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -38,7 +40,9 @@ export default function PromosPage() {
     setLoading(true);
     $api
       .get<{ data: Promo[] }>("/admin/promos")
-      .then((res) => setPromos(res.data))
+      .then((res) => {
+        setPromos(Array.isArray(res.data) ? res.data : []);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -49,23 +53,27 @@ export default function PromosPage() {
 
   const handleCreatePromo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code || !discountValue || !startDate || !endDate) return;
+    if (!code || !name || !discountValue || !startDate || !endDate) return;
     setSubmitting(true);
     try {
       await $api.post("/admin/promos", {
         code: code.toUpperCase(),
+        name,
         description: description || undefined,
         discountType,
         discountValue: Number(discountValue),
-        maxUses: maxUses ? Number(maxUses) : undefined,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
+        minBookingAmount: minBookingAmount ? Number(minBookingAmount) : 0,
+        maxUses: maxUses ? Number(maxUses) : 0,
+        startAt: new Date(startDate + "T00:00:00Z").toISOString(),
+        expiresAt: new Date(endDate + "T23:59:59Z").toISOString(),
       });
       alert("Kode promo berhasil dibuat!");
       setShowModal(false);
       setCode("");
+      setName("");
       setDescription("");
       setDiscountValue("");
+      setMinBookingAmount("");
       setMaxUses("");
       loadPromos();
     } catch (e: any) {
@@ -113,16 +121,19 @@ export default function PromosPage() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
                 {promos.map((p) => (
                   <tr key={p.id}>
-                    <td className="py-3 px-4 font-bold text-brand-600">{p.code}</td>
+                    <td className="py-3 px-4 font-bold text-brand-600">
+                      {p.code}
+                      <span className="block text-xs font-normal text-gray-500">{p.name}</span>
+                    </td>
                     <td className="py-3 px-4 text-gray-600 dark:text-gray-300">{p.description ?? "-"}</td>
                     <td className="py-3 px-4 font-medium">
                       {p.discountType === "PERCENTAGE" ? `${p.discountValue}%` : fmtRp(p.discountValue)}
                     </td>
                     <td className="py-3 px-4 text-gray-600 dark:text-gray-300">
-                      {p.currentUses} / {p.maxUses ?? "∞"}
+                      {p.currentUses} / {p.maxUses > 0 ? p.maxUses : "∞"}
                     </td>
                     <td className="py-3 px-4 text-xs text-gray-500">
-                      {fmt(p.startDate)} → {fmt(p.endDate)}
+                      {fmt(p.startAt)} → {p.expiresAt ? fmt(p.expiresAt) : "Selamanya"}
                     </td>
                     <td className="py-3 px-4">
                       <span
@@ -186,7 +197,7 @@ export default function PromosPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   >
                     <option value="PERCENTAGE">Persentase (%)</option>
-                    <option value="FIXED_AMOUNT">Nominal (Rp)</option>
+                    <option value="FIXED">Nominal (Rp)</option>
                   </select>
                 </div>
                 <div>
@@ -203,37 +214,38 @@ export default function PromosPage() {
               </div>
 
               <div>
-                <label className="block text-gray-700 dark:text-gray-300 mb-1">Maksimal Penggunaan (Kosongkan jika ∞)</label>
+                <label className="block text-gray-700 dark:text-gray-300 mb-1">Nama Promo *</label>
                 <input
-                  type="number"
-                  placeholder="100"
-                  value={maxUses}
-                  onChange={(e) => setMaxUses(e.target.value)}
+                  type="text"
+                  required
+                  placeholder="Diskon Spesial Akhir Pekan"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1">Mulai</label>
-                  <input
-                    type="date"
-                    required
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1">Selesai</label>
-                  <input
-                    type="date"
-                    required
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
+              <div>
+                <label className="block text-gray-700 dark:text-gray-300 mb-1">Deskripsi</label>
+                <input
+                  type="text"
+                  placeholder="Diskon 15% untuk booking weekend"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 dark:text-gray-300 mb-1">Minimal Booking (Rp)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={minBookingAmount}
+                  onChange={(e) => setMinBookingAmount(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  placeholder="0"
+                />
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-800">

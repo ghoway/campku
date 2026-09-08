@@ -39,8 +39,8 @@ export default function StaffPage() {
       $api.get<{ data: Property[] }>("/properties?limit=50"),
     ])
       .then(([s, p]) => {
-        setStaffs(s.data);
-        setProperties(p.data);
+        setStaffs(Array.isArray(s.data) ? s.data : []);
+        setProperties(Array.isArray(p.data) ? p.data : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -152,7 +152,7 @@ export default function StaffPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
-                {staffs.map((s) => (
+                {(staffs || []).map((s) => (
                   <tr key={s.id}>
                     <td className="py-3 px-4 font-medium text-gray-800 dark:text-white/90">{s.name}</td>
                     <td className="py-3 px-4 text-gray-600 dark:text-gray-300">
