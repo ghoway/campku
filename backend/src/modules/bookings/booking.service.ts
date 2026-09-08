@@ -1,4 +1,5 @@
 import { prisma } from "@/config/database";
+import { Prisma } from "@prisma/client";
 import { env } from "@/config/env";
 import { AvailabilityService } from "@/shared/services/availability.service";
 import { PricingService } from "@/shared/services/pricing.service";
@@ -14,6 +15,7 @@ import {
 } from "@/shared/errors";
 import { generateBookingCode, eachDays, toDateOnly } from "@/shared/utils/helpers";
 import { sendBookingConfirmationEmail } from "@/shared/services/email.service";
+import { notifyWaitlist } from "@/jobs/worker";
 
 export interface CreateBookingInput {
   propertyId: string;
@@ -159,115 +161,41 @@ export class BookingService {
       shiftId = shift.id;
     }
 
-    const booking = await prisma.$transaction(async (tx) => {
-      // Booking code collision retry (sangat jarang)
-      let code = bookingCode;
-      let existing = await tx.booking.findUnique({ where: { bookingCode: code } });
-      while (existing) {
-        code = generateBookingCode();
-        existing = await tx.booking.findUnique({ where: { bookingCode: code } });
-      }
+    const ctx = {
+      input,
+      checkIn,
+      checkOut,
+      itemsDetail,
+      promo,
+      discountValue,
+      subtotal,
+      additionalFee,
+      grandTotal,
+      expiresAt,
+      shiftId,
+      isWalkIn,
+      unitTypeMap,
+    };
 
-      // (Opsional) kunci baris unit untuk mencegah race
-      const booked = await tx.bookingItemUnit.findMany({
-        where: {
-          bookingItem: {
-            unitTypeId: { in: unitTypeIds },
-            booking: {
-              status: { in: ["PENDING", "AWAITING_PAYMENT", "CONFIRMED", "CHECKED_IN"] },
-              checkInDate: { lt: checkOut },
-              checkOutDate: { gt: checkIn },
-            },
-          },
-        },
-        select: { unitId: true },
+    let booking;
+    try {
+      booking = await prisma.$transaction((tx) => this._runBookingTx(tx, ctx), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 15_000,
+        maxWait: 5_000,
       });
-      const blockedUnitIds = new Set(booked.map((b) => b.unitId));
-
-      // load all units
-      const allUnits = await tx.unit.findMany({
-        where: { unitTypeId: { in: unitTypeIds }, status: "AVAILABLE" },
-      });
-      const unitGroups = new Map<string, any[]>();
-      for (const u of allUnits) {
-        if (blockedUnitIds.has(u.id)) continue;
-        if (!unitGroups.has(u.unitTypeId)) unitGroups.set(u.unitTypeId, []);
-        unitGroups.get(u.unitTypeId)!.push(u);
-      }
-      for (const item of input.items) {
-        const avail = unitGroups.get(item.unitTypeId)?.length ?? 0;
-        if (avail < item.quantity) throw new UnitNotAvailableError();
-      }
-
-      const booking = await tx.booking.create({
-        data: {
-          bookingCode: code,
-          propertyId: input.propertyId,
-          customerUserId: input.customerUserId,
-          createdByUserId: input.createdByUserId,
-          shiftId,
-          promoId: promo?.id,
-          source: input.source as any,
-          status: isWalkIn ? "CONFIRMED" : "AWAITING_PAYMENT",
-          guestName:
-            input.guestName ??
-            (input.customerUserId ? (await tx.user.findUnique({ where: { id: input.customerUserId } }))?.name ?? "Guest" : "Guest"),
-          guestEmail: input.guestEmail ?? (input.customerUserId ? (await tx.user.findUnique({ where: { id: input.customerUserId } }))?.email : undefined),
-          guestPhone: input.guestPhone,
-          checkInDate: checkIn,
-          checkOutDate: checkOut,
-          adults: input.adults,
-          children: input.children,
-          subtotal,
-          discount: discountValue,
-          additionalFee,
-          grandTotal,
-          expiresAt,
-          notes: input.notes,
-        },
-      });
-
-      // Create booking items + nights
-      for (const item of itemsDetail) {
-        const bi = await tx.bookingItem.create({
-          data: {
-            bookingId: booking.id,
-            unitTypeId: item.unitTypeId,
-            unitTypeNameSnapshot: item.unitTypeName,
-            quantity: item.quantity,
-            subtotal: item.subtotal,
-          },
+    } catch (e: any) {
+      // Retry sekali pada serialization conflict (P2034)
+      if (e?.code === "P2034") {
+        booking = await prisma.$transaction((tx) => this._runBookingTx(tx, ctx), {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 15_000,
+          maxWait: 5_000,
         });
-        await tx.bookingItemNight.createMany({
-          data: item.nights.map((n) => ({
-            bookingItemId: bi.id,
-            stayDate: n.stayDate,
-            unitPrice: n.unitPrice,
-            quantity: item.quantity,
-            total: n.total,
-            rateName: n.rateName,
-          })),
-        });
+      } else {
+        throw e;
       }
-
-      // Log promo usage + update counter
-      if (promo && input.customerUserId) {
-        await tx.promoUsageLog.create({
-          data: {
-            promoId: promo.id,
-            bookingId: booking.id,
-            userId: input.customerUserId,
-            discountApplied: discountValue,
-          },
-        });
-        await tx.promo.update({
-          where: { id: promo.id },
-          data: { currentUses: { increment: 1 } },
-        });
-      }
-
-      return booking;
-    });
+    }
 
     // Send email async
     const guestEmail = booking.guestEmail ?? (input.customerUserId ? await prisma.user.findUnique({ where: { id: input.customerUserId } })?.then((u) => u?.email) : undefined);
@@ -486,7 +414,28 @@ export class BookingService {
       },
     });
 
-    // TODO: notifikasi waitlist FIFO (cron)
+    // Cancel payment Midtrans yang masih PENDING (biar nggak bisa dibayar setelah cancel)
+    const pendingPayments = await prisma.payment.findMany({
+      where: { bookingId, method: "PAYMENT_GATEWAY", status: "PENDING" },
+    });
+    for (const p of pendingPayments) {
+      await prisma.payment.update({
+        where: { id: p.id },
+        data: { status: "CANCELLED" },
+      });
+      if (p.externalReference && env.MIDTRANS_SERVER_KEY) {
+        try {
+          const snap = getSnap();
+          void snap.transaction.cancel(p.externalReference);
+        } catch (e) {
+          console.error("[midtrans] cancel transaction failed:", e);
+        }
+      }
+    }
+
+    // Slot bebas → notifikasi waitlist FIFO
+    void notifyWaitlist().catch((e) => console.error("[waitlist] notify failed:", e));
+
     return updated;
   }
 
@@ -611,6 +560,155 @@ export class BookingService {
       where: { id: bookingId },
       data: { status: "EXPIRED", isExpired: true },
     });
+  }
+
+  private async _runBookingTx(
+    tx: Prisma.TransactionClient,
+    ctx: {
+      input: CreateBookingInput & {
+        customerUserId?: string;
+        createdByUserId?: string;
+        source: string;
+        guestName?: string;
+        guestPhone?: string;
+        guestEmail?: string;
+      };
+      checkIn: Date;
+      checkOut: Date;
+      itemsDetail: {
+        unitTypeId: string;
+        unitTypeName: string;
+        quantity: number;
+        nights: { stayDate: Date; unitPrice: bigint; rateName: string; total: bigint }[];
+        subtotal: bigint;
+      }[];
+      promo: Awaited<ReturnType<PromoService["validate"]>> | null;
+      discountValue: bigint;
+      subtotal: bigint;
+      additionalFee: bigint;
+      grandTotal: bigint;
+      expiresAt: Date;
+      shiftId?: string;
+      isWalkIn: boolean;
+      unitTypeMap: Map<string, { name: string }>;
+    }
+  ) {
+    const { input, checkIn, checkOut, itemsDetail, promo, discountValue, subtotal, additionalFee, grandTotal, expiresAt, shiftId, isWalkIn, unitTypeMap } = ctx;
+
+    // Booking code collision retry (sangat jarang)
+    let code = generateBookingCode();
+    let existing = await tx.booking.findUnique({ where: { bookingCode: code } });
+    while (existing) {
+      code = generateBookingCode();
+      existing = await tx.booking.findUnique({ where: { bookingCode: code } });
+    }
+
+    // Re-check availability DI DALAM transaksi (Serializable).
+    // Sumber kebenaran: booking aktif overlap tanggal memblokir sesuai quantity.
+    for (const item of input.items) {
+      const { available } = await this.availability.checkAvailability(
+        { unitTypeId: item.unitTypeId, checkIn, checkOut, quantity: item.quantity },
+        tx
+      );
+      if (available < item.quantity) {
+        throw new UnitNotAvailableError(
+          `Insufficient availability for unit type "${unitTypeMap.get(item.unitTypeId)?.name}"`
+        );
+      }
+    }
+
+    // Konsumsi kuota promo DI DALAM transaksi (anti race).
+    // maxUses > 0: increment hanya sukses jika currentUses < maxUses (atomik via updateMany).
+    let consumedPromo: { id: string } | null = null;
+    if (promo) {
+      if (promo.maxUses > 0) {
+        const consumed = await tx.promo.updateMany({
+          where: {
+            id: promo.id,
+            isActive: true,
+            startAt: { lte: new Date() },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            currentUses: { lt: promo.maxUses },
+          },
+          data: { currentUses: { increment: 1 } },
+        });
+        if (consumed.count === 0) {
+          throw new ConflictError("Promo code usage limit reached", "PROMO_LIMIT_REACHED");
+        }
+        consumedPromo = { id: promo.id };
+      } else {
+        await tx.promo.update({
+          where: { id: promo.id },
+          data: { currentUses: { increment: 1 } },
+        });
+        consumedPromo = { id: promo.id };
+      }
+    }
+
+    const booking = await tx.booking.create({
+      data: {
+        bookingCode: code,
+        propertyId: input.propertyId,
+        customerUserId: input.customerUserId,
+        createdByUserId: input.createdByUserId,
+        shiftId,
+        promoId: consumedPromo?.id ?? promo?.id ?? null,
+        source: input.source as any,
+        status: isWalkIn ? "CONFIRMED" : "AWAITING_PAYMENT",
+        guestName:
+          input.guestName ??
+          (input.customerUserId ? (await tx.user.findUnique({ where: { id: input.customerUserId } }))?.name ?? "Guest" : "Guest"),
+        guestEmail: input.guestEmail ?? (input.customerUserId ? (await tx.user.findUnique({ where: { id: input.customerUserId } }))?.email : undefined),
+        guestPhone: input.guestPhone,
+        checkInDate: checkIn,
+        checkOutDate: checkOut,
+        adults: input.adults,
+        children: input.children,
+        subtotal,
+        discount: discountValue,
+        additionalFee,
+        grandTotal,
+        expiresAt,
+        notes: input.notes,
+      },
+    });
+
+    // Create booking items + nights
+    for (const item of itemsDetail) {
+      const bi = await tx.bookingItem.create({
+        data: {
+          bookingId: booking.id,
+          unitTypeId: item.unitTypeId,
+          unitTypeNameSnapshot: item.unitTypeName,
+          quantity: item.quantity,
+          subtotal: item.subtotal,
+        },
+      });
+      await tx.bookingItemNight.createMany({
+        data: item.nights.map((n) => ({
+          bookingItemId: bi.id,
+          stayDate: n.stayDate,
+          unitPrice: n.unitPrice,
+          quantity: item.quantity,
+          total: n.total,
+          rateName: n.rateName,
+        })),
+      });
+    }
+
+    // Log promo usage (kuota sudah dikonsumsi atomik di atas)
+    if (consumedPromo) {
+      await tx.promoUsageLog.create({
+        data: {
+          promoId: consumedPromo.id,
+          bookingId: booking.id,
+          userId: input.customerUserId ?? null,
+          discountApplied: discountValue,
+        },
+      });
+    }
+
+    return booking;
   }
 
   private async _assertStaffCanManage(staffId: string, propertyId: string) {

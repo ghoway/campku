@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Variables } from "@/shared/types";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { swaggerUI } from "@hono/swagger-ui";
@@ -18,6 +19,16 @@ import reviewRoutes from "@/modules/reviews/review.routes";
 import { env } from "@/config/env";
 
 const app = new Hono<{ Variables: Variables }>();
+
+app.use(
+  "*",
+  cors({
+    origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://localhost:5174"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 
 app.use(async (c, next) => {
   const requestId = crypto.randomUUID();

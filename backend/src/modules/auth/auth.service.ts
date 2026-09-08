@@ -209,11 +209,25 @@ export class AuthService {
     }
 
     const stored = await prisma.refreshToken.findFirst({
-      where: { token: refreshToken, isRevoked: false },
+      where: { token: refreshToken },
       include: { user: { include: { userRoles: { include: { role: true } } } } },
     });
 
     if (!stored) throw new UnauthorizedError("Refresh token not found", "INVALID_REFRESH_TOKEN");
+
+    // Reuse detection: token yang sudah di-rotate dipakai ulang → anggap token bocor,
+    // revoke SEMUA sesi user tersebut.
+    if (stored.isRevoked) {
+      await prisma.refreshToken.updateMany({
+        where: { userId: stored.userId, isRevoked: false },
+        data: { isRevoked: true },
+      });
+      throw new UnauthorizedError(
+        "Refresh token reuse detected, all sessions have been revoked",
+        "TOKEN_REUSE_DETECTED"
+      );
+    }
+
     if (stored.expiresAt < new Date()) {
       throw new UnauthorizedError("Refresh token expired", "REFRESH_TOKEN_EXPIRED");
     }

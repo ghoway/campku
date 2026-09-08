@@ -1,58 +1,73 @@
 import { prisma } from "@/config/database";
 import { eachDays, toDateOnly } from "@/shared/utils/helpers";
 import { PricingService } from "@/shared/services/pricing.service";
+import type { Prisma, PrismaClient } from "@prisma/client";
+
+type DbClient = Prisma.TransactionClient | PrismaClient;
 
 /**
  * AvailabilityService
  *
+ * Model inventory: unit type-based (quantity), bukan unit allocation-based.
  * Unit yang memblokir inventory: status AVAILABLE
  * Booking status yang memblokir: PENDING, AWAITING_PAYMENT, CONFIRMED, CHECKED_IN
+ *
+ * Reserved per booking item = max(quantity, jumlah unit yang sudah dialokasikan).
+ * Alokasi unit (booking_item_units) dilakukan belakangan (check-in), jadi
+ * perhitungan blocked TIDAK boleh hanya bergantung pada alokasi — semua booking
+ * aktif yang overlap tanggal memblokir inventory sesuai quantity-nya.
  */
 export class AvailabilityService {
   private pricing = new PricingService();
 
   /**
    * Menghitung jumlah available unit untuk sebuah unit type pada rentang tanggal.
+   * `client` opsional: pass transaction client untuk re-check di dalam transaksi.
    */
-  async checkAvailability(params: {
-    unitTypeId: string;
-    checkIn: Date;
-    checkOut: Date;
-    quantity: number;
-    excludeBookingId?: string;
-  }): Promise<{ available: number; totalUnits: number; blocked: number }> {
-    const { unitTypeId, checkIn, checkOut, quantity, excludeBookingId } = params;
+  async checkAvailability(
+    params: {
+      unitTypeId: string;
+      checkIn: Date;
+      checkOut: Date;
+      quantity: number;
+      excludeBookingId?: string;
+    },
+    client: DbClient = prisma
+  ): Promise<{ available: number; totalUnits: number; blocked: number }> {
+    const { unitTypeId, checkIn, checkOut, excludeBookingId } = params;
 
-    const totalUnits = await prisma.unit.count({
+    const totalUnits = await client.unit.count({
       where: { unitTypeId, status: "AVAILABLE" },
     });
 
     if (totalUnits === 0) return { available: 0, totalUnits: 0, blocked: 0 };
 
-    // Count distinct units yang ter-block oleh booking overlap pada periode ini
-    const overlapping = await prisma.bookingItemUnit.findMany({
+    // Booking items aktif yang overlap dengan rentang tanggal.
+    // Reserved per item = max(quantity, alokasi) supaya tidak double-count:
+    // booking yang sudah dialokasi unit dihitung dari alokasinya,
+    // yang belum dialokasi dihitung dari quantity-nya.
+    const items = await client.bookingItem.findMany({
       where: {
-        bookingItem: {
-          unitTypeId,
-          booking: {
-            status: { in: ["PENDING", "AWAITING_PAYMENT", "CONFIRMED", "CHECKED_IN"] },
-            ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-            checkInDate: { lt: checkOut },
-            checkOutDate: { gt: checkIn },
-          },
+        unitTypeId,
+        booking: {
+          status: { in: ["PENDING", "AWAITING_PAYMENT", "CONFIRMED", "CHECKED_IN"] },
+          ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+          checkInDate: { lt: checkOut },
+          checkOutDate: { gt: checkIn },
         },
       },
-      select: { unitId: true },
-      distinct: ["unitId"],
+      select: {
+        quantity: true,
+        _count: { select: { units: true } },
+      },
     });
 
-    const blocked = overlapping.length;
-    const available = Math.max(0, totalUnits - blocked);
+    let blocked = 0;
+    for (const item of items) {
+      blocked += Math.max(item.quantity, item._count.units);
+    }
 
-    // Kita butuh quantity unit berturut-turut untuk seluruh malam;
-    // jika booking khusus satu malam di tengah periode, unit tetap tidak bisa
-    // disimpan per malam. Untuk keperluan MVP, kita cukup bandingkan total.
-    return { available, totalUnits, blocked };
+    return { available: Math.max(0, totalUnits - blocked), totalUnits, blocked };
   }
 
   /**

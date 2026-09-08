@@ -28,7 +28,10 @@ export class PaymentService {
   }
 
   async createCashPayment(bookingId: string, staffId: string, input: CreateCashPaymentInput) {
-    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { property: { select: { name: true } } },
+    });
     if (!booking) throw new NotFoundError("Booking not found");
 
     // Shift harus di property yang sama
@@ -82,7 +85,7 @@ export class PaymentService {
       });
       void sendBookingConfirmationEmail(booking.guestEmail, {
         bookingCode: booking.bookingCode,
-        propertyName: booking.guestName,
+        propertyName: booking.property.name,
         checkIn: booking.checkInDate.toISOString().slice(0, 10),
         checkOut: booking.checkOutDate.toISOString().slice(0, 10),
         grandTotal: String(booking.grandTotal),
@@ -163,6 +166,7 @@ export class PaymentService {
     signature_key: string;
     transaction_id?: string;
     payment_type?: string;
+    fraud_status?: string;
   }) {
     // Verifikasi signature
     const valid = verifySignature(
@@ -198,13 +202,30 @@ export class PaymentService {
       });
     }
 
-    const isPaid = payload.transaction_status === "settlement" || payload.transaction_status === "capture";
+    const isPaid =
+      (payload.transaction_status === "settlement" || payload.transaction_status === "capture") &&
+      payload.fraud_status !== "challenge";
+    const isFailed =
+      payload.transaction_status === "cancel" ||
+      payload.transaction_status === "expire" ||
+      payload.transaction_status === "deny";
+
+    // Idempotent: notifikasi duplikat dengan status sama → response OK tanpa efek samping
+    if (isPaid === (payment.status === "PAID")) {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { providerResponse: payload },
+      });
+      return payment;
+    }
+    if (isFailed && payment.status !== "PAID" && payment.status !== "PENDING") {
+      return payment;
+    }
+
     const updated = await prisma.payment.update({
       where: { id: payment.id },
       data: {
-        status: isPaid ? "PAID" : payload.transaction_status === "cancel" || payload.transaction_status === "expire"
-          ? "CANCELLED"
-          : "FAILED",
+        status: isPaid ? "PAID" : isFailed ? "CANCELLED" : "FAILED",
         externalReference: payload.transaction_id ?? payment.externalReference,
         paidAt: isPaid ? new Date() : null,
         providerResponse: payload,
@@ -213,7 +234,7 @@ export class PaymentService {
 
     if (isPaid) {
       const booking = await prisma.booking.findUnique({ where: { id: payment.bookingId } });
-      if (booking && booking.status === "AWAITING_PAYMENT") {
+      if (booking && ["AWAITING_PAYMENT", "PENDING"].includes(booking.status)) {
         await prisma.booking.update({
           where: { id: booking.id },
           data: { status: "CONFIRMED" },
