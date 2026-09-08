@@ -1,0 +1,47 @@
+{
+  "name": "campku-backend",
+  "module": "src/server.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "build": "bun build src/server.ts --target bun --outdir dist",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "bun prisma/seed.ts",
+    "job:worker": "bun src/jobs/worker.ts"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/bun": "latest",
+    "@types/jsonwebtoken": "^9.0.10",
+    "tsx": "^4.23.13"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@hono/swagger-ui": "^0.6.1",
+    "@prisma/client": "6",
+    "@types/multer": "^2.2.0",
+    "@types/pdfkit": "^0.17.6",
+    "bcryptjs": "^3.0.3",
+    "cron": "^4.4.0",
+    "dom-to-image": "^2.6.0",
+    "exceljs": "^4.4.0",
+    "hono": "^4.13.7",
+    "jsonwebtoken": "^9.0.3",
+    "midtrans-client": "^1.4.3",
+    "multer": "^2.3.0",
+    "pdfkit": "^0.20.2",
+    "prisma": "6",
+    "resend": "^6.26.0",
+    "zod": "3",
+    "zod-to-json-schema": "^3.25.2"
+  }
+}

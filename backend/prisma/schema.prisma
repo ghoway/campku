@@ -1,0 +1,632 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS & RBAC ====================
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum RoleCode {
+  OWNER
+  STAFF
+  CUSTOMER
+}
+
+model Role {
+  id   String   @id @default(uuid()) @db.Uuid
+  code RoleCode @unique
+  name String
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+model User {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String
+  email           String       @unique
+  phone           String?      @unique
+  passwordHash    String       @map("password_hash")
+  status          UserStatus   @default(ACTIVE)
+  emailVerifiedAt DateTime?    @map("email_verified_at") @db.Timestamptz(6)
+  otpCodeHash     String?      @map("otp_code_hash")
+  otpExpiresAt    DateTime?    @map("otp_expires_at") @db.Timestamptz(6)
+  otpAttempts     Int          @default(0) @map("otp_attempts")
+  otpSentAt       DateTime?    @map("otp_sent_at") @db.Timestamptz(6)
+  lastLoginAt     DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  userRoles                UserRole[]
+  refreshTokens            RefreshToken[]
+  staffPropertyAssignments StaffPropertyAssignment[]
+  bookings                 Booking[]          @relation("BookingCustomer")
+  bookingsCreated          Booking[]          @relation("BookingCreatedBy")
+  shiftPaymentsReceived    Payment[]          @relation("PaymentReceivedBy")
+  staffShifts              StaffShift[]
+  waitlistEntries          WaitlistEntry[]
+  reviews                  Review[]
+  promoUsageLogs           PromoUsageLog[]
+  checkedInBookings        Booking[]          @relation("BookingCheckedInBy")
+  checkedOutBookings       Booking[]          @relation("BookingCheckedOutBy")
+  cancelledBookings        Booking[]          @relation("BookingCancelledBy")
+  allocatedUnits           BookingItemUnit[]  @relation("UnitAllocatedBy")
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  token      String    @unique
+  deviceInfo String?   @map("device_info")
+  isRevoked  Boolean   @default(false) @map("is_revoked")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ==================== PROPERTIES & STAFF ====================
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Property {
+  id          String         @id @default(uuid()) @db.Uuid
+  code        String         @unique
+  name        String
+  slug        String         @unique
+  description String?
+  city        String
+  province    String?
+  address     String?
+  latitude    Decimal?       @db.Decimal(10, 8)
+  longitude   Decimal?       @db.Decimal(11, 8)
+  timezone    String         @default("Asia/Jakarta")
+  checkInTime String         @map("check_in_time") @default("14:00")
+  checkOutTime String        @map("check_out_time") @default("12:00")
+  status      PropertyStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  images            PropertyImage[]
+  propertyFacilities PropertyFacility[]
+  unitTypes         UnitType[]
+  staffAssignments  StaffPropertyAssignment[]
+  bookings          Booking[]
+  staffShifts       StaffShift[]
+  waitlistEntries   WaitlistEntry[]
+  reviews           Review[]
+
+  @@index([slug])
+  @@index([city])
+  @@map("properties")
+}
+
+model PropertyImage {
+  id               String   @id @default(uuid()) @db.Uuid
+  propertyId       String   @map("property_id") @db.Uuid
+  url              String
+  originalFilename String?  @map("original_filename")
+  sortOrder        Int      @default(0) @map("sort_order")
+  isPrimary        Boolean  @default(false) @map("is_primary")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_images")
+}
+
+model StaffPropertyAssignment {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  propertyId     String    @map("property_id") @db.Uuid
+  isActive       Boolean   @default(true) @map("is_active")
+  assignedAt     DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  deactivatedAt  DateTime? @map("deactivated_at") @db.Timestamptz(6)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@map("staff_property_assignments")
+}
+
+// ==================== FACILITIES ====================
+
+enum FacilityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Facility {
+  id        String         @id @default(uuid()) @db.Uuid
+  name      String
+  icon      String?
+  status    FacilityStatus @default(ACTIVE)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  propertyFacilities PropertyFacility[]
+  unitTypeFacilities UnitTypeFacility[]
+
+  @@map("facilities")
+}
+
+model PropertyFacility {
+  propertyId String @map("property_id") @db.Uuid
+  facilityId String @map("facility_id") @db.Uuid
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@id([propertyId, facilityId])
+  @@map("property_facilities")
+}
+
+model UnitTypeFacility {
+  unitTypeId String @map("unit_type_id") @db.Uuid
+  facilityId String @map("facility_id") @db.Uuid
+
+  unitType UnitType @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@id([unitTypeId, facilityId])
+  @@map("unit_type_facilities")
+}
+
+// ==================== UNIT TYPES & UNITS ====================
+
+enum UnitTypeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model UnitType {
+  id          String         @id @default(uuid()) @db.Uuid
+  propertyId  String         @map("property_id") @db.Uuid
+  name        String
+  slug        String
+  description String?
+  capacity    Int
+  totalUnits  Int            @default(0) @map("total_units")
+  weekdayPrice BigInt        @map("weekday_price")
+  weekendPrice BigInt        @map("weekend_price")
+  status      UnitTypeStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  property          Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  images            UnitTypeImage[]
+  facilities        UnitTypeFacility[]
+  units             Unit[]
+  specialRates      SpecialRatePeriod[]
+  bookingItems      BookingItem[]
+  waitlistEntries   WaitlistEntry[]
+
+  @@index([propertyId])
+  @@map("unit_types")
+}
+
+model UnitTypeImage {
+  id               String   @id @default(uuid()) @db.Uuid
+  unitTypeId       String   @map("unit_type_id") @db.Uuid
+  url              String
+  originalFilename String?  @map("original_filename")
+  sortOrder        Int      @default(0) @map("sort_order")
+  isPrimary        Boolean  @default(false) @map("is_primary")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  unitType UnitType @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
+
+  @@map("unit_type_images")
+}
+
+enum UnitStatus {
+  AVAILABLE
+  MAINTENANCE
+  INACTIVE
+}
+
+model Unit {
+  id         String     @id @default(uuid()) @db.Uuid
+  unitTypeId String     @map("unit_type_id") @db.Uuid
+  code       String
+  name       String?
+  status     UnitStatus @default(AVAILABLE)
+  notes      String?
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  unitType      UnitType          @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
+  bookingItemUnits BookingItemUnit[]
+
+  @@unique([unitTypeId, code])
+  @@index([unitTypeId, status])
+  @@map("units")
+}
+
+// ==================== SPECIAL RATES ====================
+
+model SpecialRatePeriod {
+  id         String   @id @default(uuid()) @db.Uuid
+  unitTypeId String   @map("unit_type_id") @db.Uuid
+  name       String
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  price      BigInt
+  priority   Int      @default(0)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  unitType UnitType @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
+
+  @@index([unitTypeId, startDate, endDate])
+  @@map("special_rate_periods")
+}
+
+// ==================== BOOKINGS ====================
+
+enum BookingSource {
+  SELF_RESERVATION
+  WALK_IN
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  AWAITING_PAYMENT
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  EXPIRED
+  NO_SHOW
+}
+
+model Booking {
+  id               String        @id @default(uuid()) @db.Uuid
+  bookingCode      String        @unique @map("booking_code")
+  propertyId       String        @map("property_id") @db.Uuid
+  customerUserId   String?       @map("customer_user_id") @db.Uuid
+  createdByUserId  String?       @map("created_by_user_id") @db.Uuid
+  shiftId          String?       @map("shift_id") @db.Uuid
+  promoId          String?       @map("promo_id") @db.Uuid
+  source           BookingSource
+  status           BookingStatus @default(AWAITING_PAYMENT)
+  guestName        String        @map("guest_name")
+  guestEmail       String?       @map("guest_email")
+  guestPhone       String?       @map("guest_phone")
+  checkInDate      DateTime      @map("check_in_date") @db.Date
+  checkOutDate     DateTime      @map("check_out_date") @db.Date
+  adults           Int           @default(1)
+  children         Int           @default(0)
+  subtotal         BigInt
+  discount         BigInt        @default(0)
+  additionalFee    BigInt        @default(0) @map("additional_fee")
+  grandTotal       BigInt        @map("grand_total")
+  checkedInAt      DateTime?     @map("checked_in_at") @db.Timestamptz(6)
+  checkedInBy      String?       @map("checked_in_by") @db.Uuid
+  checkedOutAt     DateTime?     @map("checked_out_at") @db.Timestamptz(6)
+  checkedOutBy     String?       @map("checked_out_by") @db.Uuid
+  cancelledAt      DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy      String?       @map("cancelled_by") @db.Uuid
+  cancelReason     String?       @map("cancel_reason")
+  expiresAt        DateTime?     @map("expires_at") @db.Timestamptz(6)
+  isExpired        Boolean       @default(false) @map("is_expired")
+  notes            String?
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  property       Property       @relation(fields: [propertyId], references: [id])
+  customerUser   User?          @relation("BookingCustomer", fields: [customerUserId], references: [id])
+  createdBy      User?          @relation("BookingCreatedBy", fields: [createdByUserId], references: [id])
+  shift          StaffShift?    @relation(fields: [shiftId], references: [id])
+  promo          Promo?         @relation(fields: [promoId], references: [id])
+  checkedInUser  User?          @relation("BookingCheckedInBy", fields: [checkedInBy], references: [id])
+  checkedOutUser User?          @relation("BookingCheckedOutBy", fields: [checkedOutBy], references: [id])
+  cancelledByUser User?         @relation("BookingCancelledBy", fields: [cancelledBy], references: [id])
+
+  items      BookingItem[]
+  payments   Payment[]
+  reviews    Review[]
+  promoUsageLogs PromoUsageLog[]
+
+  @@index([bookingCode])
+  @@index([propertyId, checkInDate, checkOutDate])
+  @@index([customerUserId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id                   String   @id @default(uuid()) @db.Uuid
+  bookingId            String   @map("booking_id") @db.Uuid
+  unitTypeId           String   @map("unit_type_id") @db.Uuid
+  unitTypeNameSnapshot String   @map("unit_type_name_snapshot")
+  quantity             Int
+  subtotal             BigInt
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  booking   Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  unitType  UnitType           @relation(fields: [unitTypeId], references: [id])
+  nights    BookingItemNight[]
+  units     BookingItemUnit[]
+
+  @@index([bookingId])
+  @@index([unitTypeId])
+  @@map("booking_items")
+}
+
+model BookingItemNight {
+  id            String   @id @default(uuid()) @db.Uuid
+  bookingItemId String   @map("booking_item_id") @db.Uuid
+  stayDate      DateTime @map("stay_date") @db.Date
+  unitPrice     BigInt   @map("unit_price")
+  quantity      Int
+  total         BigInt
+  rateName      String   @map("rate_name")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  bookingItem BookingItem @relation(fields: [bookingItemId], references: [id], onDelete: Cascade)
+
+  @@index([stayDate])
+  @@index([bookingItemId, stayDate])
+  @@map("booking_item_nights")
+}
+
+model BookingItemUnit {
+  id          String    @id @default(uuid()) @db.Uuid
+  bookingItemId String  @map("booking_item_id") @db.Uuid
+  unitId      String    @map("unit_id") @db.Uuid
+  allocatedAt DateTime  @default(now()) @map("allocated_at") @db.Timestamptz(6)
+  allocatedBy String?   @map("allocated_by") @db.Uuid
+
+  bookingItem BookingItem @relation(fields: [bookingItemId], references: [id], onDelete: Cascade)
+  unit        Unit        @relation(fields: [unitId], references: [id])
+  allocatedByUser User?   @relation("UnitAllocatedBy", fields: [allocatedBy], references: [id])
+
+  @@index([unitId])
+  @@map("booking_item_units")
+}
+
+// ==================== PAYMENTS ====================
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  QRIS
+  PAYMENT_GATEWAY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+model Payment {
+  id                String         @id @default(uuid()) @db.Uuid
+  bookingId         String         @map("booking_id") @db.Uuid
+  shiftId           String?        @map("shift_id") @db.Uuid
+  method            PaymentMethod
+  status            PaymentStatus  @default(PENDING)
+  provider          String?
+  externalOrderId   String?        @map("external_order_id")
+  externalReference String?        @map("external_reference")
+  paymentUrl        String?        @map("payment_url")
+  amount            BigInt
+  refundAmount      BigInt         @default(0) @map("refund_amount")
+  receivedByUserId  String?        @map("received_by_user_id") @db.Uuid
+  paidAt            DateTime?      @map("paid_at") @db.Timestamptz(6)
+  notes             String?
+  providerResponse  Json?          @map("provider_response")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  booking Booking    @relation(fields: [bookingId], references: [id])
+  shift   StaffShift? @relation(fields: [shiftId], references: [id])
+  receivedBy User?   @relation("PaymentReceivedBy", fields: [receivedByUserId], references: [id])
+
+  @@index([bookingId])
+  @@index([status])
+  @@index([paidAt])
+  @@index([externalOrderId])
+  @@map("payments")
+}
+
+// ==================== STAFF SHIFTS ====================
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+model StaffShift {
+  id                  String      @id @default(uuid()) @db.Uuid
+  propertyId          String      @map("property_id") @db.Uuid
+  userId              String      @map("user_id") @db.Uuid
+  openedAt            DateTime    @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt            DateTime?   @map("closed_at") @db.Timestamptz(6)
+  openingCash         BigInt      @default(0) @map("opening_cash")
+  expectedClosingCash BigInt?     @map("expected_closing_cash")
+  actualClosingCash   BigInt?     @map("actual_closing_cash")
+  totalCashSales      BigInt      @default(0) @map("total_cash_sales")
+  totalTransferSales  BigInt      @default(0) @map("total_transfer_sales")
+  totalQrisSales      BigInt      @default(0) @map("total_qris_sales")
+  status              ShiftStatus @default(OPEN)
+  notes               String?
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  property Property   @relation(fields: [propertyId], references: [id])
+  user     User       @relation(fields: [userId], references: [id])
+  bookings Booking[]
+  payments Payment[]
+
+  @@index([propertyId, userId])
+  @@index([openedAt])
+  @@index([status])
+  @@map("staff_shifts")
+}
+
+// ==================== WAITLIST ====================
+
+enum WaitlistStatus {
+  WAITING
+  NOTIFIED
+  BOOKED
+  EXPIRED
+  CANCELLED
+}
+
+model WaitlistEntry {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String?        @map("user_id") @db.Uuid
+  propertyId   String         @map("property_id") @db.Uuid
+  unitTypeId   String?        @map("unit_type_id") @db.Uuid
+  checkInDate  DateTime       @map("check_in_date") @db.Date
+  checkOutDate DateTime       @map("check_out_date") @db.Date
+  adults       Int            @default(1)
+  children     Int            @default(0)
+  priorityQueue Int           @map("priority_queue")
+  status       WaitlistStatus @default(WAITING)
+  notifiedAt   DateTime?      @map("notified_at") @db.Timestamptz(6)
+  expiresAt    DateTime?      @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user     User?     @relation(fields: [userId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+  unitType UnitType? @relation(fields: [unitTypeId], references: [id])
+
+  @@index([propertyId, checkInDate, checkOutDate])
+  @@index([status])
+  @@map("waitlist_entries")
+}
+
+// ==================== REVIEWS ====================
+
+enum ReviewStatus {
+  APPROVED
+  HIDDEN
+  PENDING
+}
+
+model Review {
+  id         String       @id @default(uuid()) @db.Uuid
+  bookingId  String       @unique @map("booking_id") @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  propertyId String       @map("property_id") @db.Uuid
+  rating     Int
+  comment    String
+  status     ReviewStatus @default(PENDING)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@index([bookingId])
+  @@map("reviews")
+}
+
+// ==================== PROMOS ====================
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Promo {
+  id               String       @id @default(uuid()) @db.Uuid
+  code             String       @unique
+  name             String
+  description      String?
+  discountType     DiscountType @map("discount_type")
+  discountValue    BigInt       @map("discount_value")
+  minBookingAmount BigInt       @default(0) @map("min_booking_amount")
+  maxUses          Int          @default(0) @map("max_uses")
+  currentUses      Int          @default(0) @map("current_uses")
+  startAt          DateTime     @map("start_at") @db.Timestamptz(6)
+  expiresAt        DateTime?    @map("expires_at") @db.Timestamptz(6)
+  isActive         Boolean      @default(true) @map("is_active")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  bookings      Booking[]
+  usageLogs     PromoUsageLog[]
+
+  @@index([code])
+  @@map("promos")
+}
+
+model PromoUsageLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  promoId          String   @map("promo_id") @db.Uuid
+  bookingId        String   @map("booking_id") @db.Uuid
+  userId           String?  @map("user_id") @db.Uuid
+  discountApplied  BigInt   @map("discount_applied")
+  usedAt           DateTime @default(now()) @map("used_at") @db.Timestamptz(6)
+
+  promo   Promo   @relation(fields: [promoId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([promoId])
+  @@index([userId])
+  @@map("promo_usage_logs")
+}
+
+// ==================== ACTIVITY LOGS ====================
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  propertyId String?  @map("property_id") @db.Uuid
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}
