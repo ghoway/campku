@@ -48,16 +48,16 @@ export default function ShiftsPage() {
   const loadCurrentShift = () => {
     setLoading(true);
     $api
-      .get<{ data: Shift }>("/staff/shifts/current")
+      .get<Shift>("/staff/shifts/current")
       .then((res) => {
-        setCurrentShift(res.data);
-        if (res.data) {
-          loadReport(res.data.id);
+        setCurrentShift(res);
+        if (res) {
+          loadReport(res.id);
         }
       })
       .catch((e) => {
         if (e.message.includes("NOT_FOUND")) {
-          setCurrentShift(null); // No active shift
+          setCurrentShift(null);
         } else {
           setError(e.message);
         }
@@ -67,8 +67,8 @@ export default function ShiftsPage() {
 
   const loadReport = (shiftId: string) => {
     $api
-      .get<{ data: ShiftReport }>(`/staff/shifts/${shiftId}/report`)
-      .then((res) => setReport(res.data))
+      .get<ShiftReport>(`/staff/shifts/${shiftId}/report`)
+      .then((res) => setReport(res))
       .catch(console.error);
   };
 

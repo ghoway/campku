@@ -29,10 +29,10 @@ export default function DashboardPage() {
   useEffect(() => {
     Promise.all([
       $api.get<DashboardData>("/admin/dashboard/stats").catch(() => null),
-      $api.get<{ data: Property[] }>("/properties?limit=50").catch(() => ({ data: [] })),
+      $api.get<Property[]>("/properties?limit=50").catch(() => []),
     ]).then(([s, p]) => {
       if (s) setStats(s);
-      setProperties((p as any)?.data ?? []);
+      setProperties(Array.isArray(p) ? p : []);
       setLoading(false);
     });
   }, []);

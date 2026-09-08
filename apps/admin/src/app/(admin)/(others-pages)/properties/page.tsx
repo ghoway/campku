@@ -86,12 +86,12 @@ export default function PropertiesPage() {
   const loadAll = () => {
     setLoading(true);
     Promise.all([
-      $api.get<{ data: PropertyListItem[] }>("/properties?limit=50"),
-      $api.get<{ data: Facility[] }>("/facilities"),
+      $api.get<PropertyListItem[]>("/properties?limit=50"),
+      $api.get<Facility[]>("/facilities"),
     ])
       .then(([p, f]) => {
-        setProperties(Array.isArray(p.data) ? p.data : []);
-        setFacilities(Array.isArray(f.data) ? f.data : []);
+        setProperties(Array.isArray(p) ? p : []);
+        setFacilities(Array.isArray(f) ? f : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -102,7 +102,7 @@ export default function PropertiesPage() {
   const fetchDetail = async (id: string): Promise<PropertyDetail | null> => {
     try {
       const res = await $api.get<PropertyDetail>(`/properties/${id}`);
-      return res as unknown as PropertyDetail;
+      return res;
     } catch (e: any) {
       alert("Error: " + e.message);
       return null;

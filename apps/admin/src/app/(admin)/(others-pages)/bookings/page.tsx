@@ -52,11 +52,9 @@ export default function BookingsPage() {
     qs.set("limit", "15");
 
     $api
-      .get<{ data: Booking[]; meta: { total: number; totalPages: number } }>(
-        `/staff/bookings?${qs.toString()}`
-      )
+      .getList<Booking>(`/staff/bookings?${qs.toString()}`)
       .then((res) => {
-        setBookings(Array.isArray(res.data) ? res.data : []);
+        setBookings(res.data);
         setMeta(res.meta);
       })
       .catch((e) => setError(e.message))

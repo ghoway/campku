@@ -62,8 +62,8 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   const loadData = () => {
     setLoading(true);
     $api
-      .get<{ data: BookingDetail }>(`/bookings/${resolvedParams.id}`)
-      .then((res) => setBooking(res.data))
+      .get<BookingDetail>(`/bookings/${resolvedParams.id}`)
+      .then((res) => setBooking(res))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   };

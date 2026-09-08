@@ -35,12 +35,12 @@ export default function StaffPage() {
   const loadData = () => {
     setLoading(true);
     Promise.all([
-      $api.get<{ data: Staff[] }>("/admin/staff"),
-      $api.get<{ data: Property[] }>("/properties?limit=50"),
+      $api.get<Staff[]>("/admin/staff"),
+      $api.get<Property[]>("/properties?limit=50"),
     ])
       .then(([s, p]) => {
-        setStaffs(Array.isArray(s.data) ? s.data : []);
-        setProperties(Array.isArray(p.data) ? p.data : []);
+        setStaffs(Array.isArray(s) ? s : []);
+        setProperties(Array.isArray(p) ? p : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

@@ -41,7 +41,7 @@ export default function PromosPage() {
     $api
       .get<{ data: Promo[] }>("/admin/promos")
       .then((res) => {
-        setPromos(Array.isArray(res.data) ? res.data : []);
+        setPromos(Array.isArray(res) ? res : []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

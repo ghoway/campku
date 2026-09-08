@@ -48,11 +48,11 @@ export default function WalkInPage() {
 
   useEffect(() => {
     $api
-      .get<{ data: Property[] }>("/properties?limit=50")
+      .get<Property[]>("/properties?limit=50")
       .then((res) => {
-        setProperties(res.data);
-        if (res.data.length > 0) {
-          setSelectedPropertyId(res.data[0].id);
+        setProperties(res);
+        if (res && res.length > 0) {
+          setSelectedPropertyId(res[0].id);
         }
       })
       .catch(console.error);
@@ -65,10 +65,10 @@ export default function WalkInPage() {
     }
     setCheckingAvail(true);
     try {
-      const res = await $api.get<{ data: AvailabilityItem[] }>(
+      const res = await $api.get<AvailabilityItem[]>(
         `/properties/${selectedPropertyId}/availability?checkInDate=${checkInDate}&checkOutDate=${checkOutDate}`
       );
-      setAvailabilities(res.data);
+      setAvailabilities(res);
       setSelectedUnits({});
     } catch (e: any) {
       alert("Error cek ketersediaan: " + e.message);
@@ -112,7 +112,7 @@ export default function WalkInPage() {
 
     setLoading(true);
     try {
-      const res = await $api.post<{ data: { id: string; bookingCode: string } }>("/staff/bookings/walk-in", {
+      const res = await $api.post<{ id: string; bookingCode: string }>("/staff/bookings/walk-in", {
         propertyId: selectedPropertyId,
         checkInDate,
         checkOutDate,
@@ -125,8 +125,8 @@ export default function WalkInPage() {
         paymentMethod: "CASH",
       });
 
-      alert(`Walk-In Booking Berhasil! Kode: ${res.data.bookingCode}`);
-      router.push(`/bookings/${res.data.id}`);
+      alert(`Walk-In Booking Berhasil! Kode: ${res.bookingCode}`);
+      router.push(`/bookings/${res.id}`);
     } catch (e: any) {
       alert("Error membuat Walk-In booking: " + e.message);
     } finally {
