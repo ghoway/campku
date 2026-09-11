@@ -25,6 +25,14 @@ type PropertyImage = {
   isPrimary: boolean;
 };
 
+type Unit = {
+  id: string;
+  code: string;
+  name: string | null;
+  status: string;
+  notes: string | null;
+};
+
 type PropertyListItem = {
   id: string;
   name: string;
@@ -82,6 +90,26 @@ export default function PropertiesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Unit type form state
+  const [utModal, setUtModal] = useState(false);
+  const [utEditing, setUtEditing] = useState<UnitType | null>(null);
+  const [utName, setUtName] = useState("");
+  const [utDescription, setUtDescription] = useState("");
+  const [utCapacity, setUtCapacity] = useState("2");
+  const [utWeekdayPrice, setUtWeekdayPrice] = useState("");
+  const [utWeekendPrice, setUtWeekendPrice] = useState("");
+  const [utFacilityIds, setUtFacilityIds] = useState<string[]>([]);
+  const [utSubmitting, setUtSubmitting] = useState(false);
+
+  // Units management
+  const [unitsModal, setUnitsModal] = useState<UnitType | null>(null);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [unitLoading, setUnitLoading] = useState(false);
+  const [unitCode, setUnitCode] = useState("");
+  const [unitName, setUnitName] = useState("");
+  const [unitStatus, setUnitStatus] = useState("AVAILABLE");
+  const [unitEditing, setUnitEditing] = useState<Unit | null>(null);
 
   const loadAll = () => {
     setLoading(true);
@@ -245,6 +273,141 @@ export default function PropertiesPage() {
     setFacilityIds((prev) =>
       prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
     );
+  };
+
+  // Unit Type Handlers
+  const openCreateUt = () => {
+    setUtEditing(null);
+    setUtName("");
+    setUtDescription("");
+    setUtCapacity("2");
+    setUtWeekdayPrice("");
+    setUtWeekendPrice("");
+    setUtFacilityIds([]);
+    setUtModal(true);
+  };
+
+  const openEditUt = (ut: UnitType) => {
+    setUtEditing(ut);
+    setUtName(ut.name);
+    setUtDescription(ut.description || "");
+    setUtCapacity(String(ut.capacity));
+    setUtWeekdayPrice(String(ut.weekdayPrice));
+    setUtWeekendPrice(String(ut.weekendPrice));
+    setUtFacilityIds([]);
+    setUtModal(true);
+  };
+
+  const handleUtSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!detail || !utName || !utWeekdayPrice || !utWeekendPrice) return;
+    setUtSubmitting(true);
+    try {
+      if (utEditing) {
+        await $api.patch(`/admin/unit-types/${utEditing.id}`, {
+          name: utName,
+          description: utDescription || undefined,
+          capacity: Number(utCapacity),
+          weekdayPrice: Number(utWeekdayPrice),
+          weekendPrice: Number(utWeekendPrice),
+        });
+        alert("Unit Type berhasil diupdate!");
+      } else {
+        await $api.post(`/admin/properties/${detail.id}/unit-types`, {
+          name: utName,
+          description: utDescription || undefined,
+          capacity: Number(utCapacity),
+          weekdayPrice: Number(utWeekdayPrice),
+          weekendPrice: Number(utWeekendPrice),
+        });
+        alert("Unit Type baru berhasil ditambah!");
+      }
+      setUtModal(false);
+      const d = await fetchDetail(detail.id);
+      if (d) setDetail(d);
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    } finally {
+      setUtSubmitting(false);
+    }
+  };
+
+  const handleDeleteUt = async (utId: string) => {
+    if (!detail || !confirm("Hapus tipe unit ini?")) return;
+    try {
+      await $api.delete(`/admin/unit-types/${utId}`);
+      alert("Unit type dihapus!");
+      const d = await fetchDetail(detail.id);
+      if (d) setDetail(d);
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  // Units Management
+  const loadUnits = async (utId: string) => {
+    setUnitLoading(true);
+    try {
+      const res = await $api.get<Unit[]>(`/admin/unit-types/${utId}/units`);
+      setUnits(Array.isArray(res) ? res : []);
+    } catch (e: any) {
+      alert("Error load units: " + e.message);
+    } finally {
+      setUnitLoading(false);
+    }
+  };
+
+  const openUnitsModal = (ut: UnitType) => {
+    setUnitsModal(ut);
+    setUnitEditing(null);
+    setUnitCode("");
+    setUnitName("");
+    setUnitStatus("AVAILABLE");
+    loadUnits(ut.id);
+  };
+
+  const handleUnitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unitsModal || !unitCode) return;
+    try {
+      if (unitEditing) {
+        await $api.patch(`/admin/unit-types/${unitsModal.id}/units/${unitEditing.id}`, {
+          code: unitCode,
+          name: unitName || undefined,
+          status: unitStatus,
+        });
+      } else {
+        await $api.post(`/admin/unit-types/${unitsModal.id}/units`, {
+          code: unitCode,
+          name: unitName || undefined,
+          status: unitStatus,
+        });
+      }
+      setUnitCode("");
+      setUnitName("");
+      setUnitEditing(null);
+      loadUnits(unitsModal.id);
+      if (detail) {
+        const d = await fetchDetail(detail.id);
+        if (d) setDetail(d);
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  const handleDeleteUnit = async (unitId: string) => {
+    if (!unitsModal || !confirm("Hapus unit fisik ini?")) return;
+    try {
+      await $api.delete(`/admin/unit-types/${unitsModal.id}/units/${unitId}`);
+      loadUnits(unitsModal.id);
+      if (detail) {
+        const d = await fetchDetail(detail.id);
+        if (d) setDetail(d);
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
   };
 
   const fmtRp = (v: string | number | null) =>
@@ -538,33 +701,172 @@ export default function PropertiesPage() {
                 </div>
               </div>
 
-              {/* Unit Types */}
+              {/* Unit Types CRUD */}
               <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
-                <h4 className="font-semibold text-gray-800 dark:text-white/90 mb-2">
-                  Unit Types ({detail.unitTypes?.length ?? 0})
-                </h4>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-semibold text-gray-800 dark:text-white/90">
+                    Unit Types ({detail.unitTypes?.length ?? 0})
+                  </h4>
+                  <button type="button" onClick={openCreateUt}
+                    className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600">
+                    + Tambah Unit Type
+                  </button>
+                </div>
                 <div className="space-y-2">
                   {(detail.unitTypes || []).map((ut) => (
-                    <div key={ut.id} className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 flex justify-between items-center">
-                      <div>
-                        <h5 className="font-medium text-gray-800 dark:text-white/90">{ut.name}</h5>
-                        <span className="text-xs text-gray-400">
-                          Kapasitas: {ut.capacity} | Unit: {ut.totalUnits} | {ut.status}
-                        </span>
+                    <div key={ut.id} className="p-3 rounded-lg border border-gray-100 dark:border-gray-800">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h5 className="font-medium text-gray-800 dark:text-white/90">{ut.name}</h5>
+                          <span className="text-xs text-gray-400">
+                            Kapasitas: {ut.capacity} orang | Unit fisik: {ut.totalUnits} | {ut.status}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-brand-600 dark:text-brand-400">{fmtRp(ut.weekdayPrice)}</span>
+                          <span className="block text-xs text-gray-400">weekday / {fmtRp(ut.weekendPrice)} weekend</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="font-bold text-brand-600 dark:text-brand-400">{fmtRp(ut.weekdayPrice)}</span>
-                        <span className="block text-xs text-gray-400">weekday / {fmtRp(ut.weekendPrice)} weekend</span>
+                      <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50 dark:border-gray-800/50">
+                        <button type="button" onClick={() => openUnitsModal(ut)}
+                          className="text-xs font-medium text-blue-500 hover:text-blue-600">
+                          Kelola Unit ({ut.totalUnits})
+                        </button>
+                        <button type="button" onClick={() => openEditUt(ut)}
+                          className="text-xs font-medium text-brand-500 hover:text-brand-600">Edit</button>
+                        <button type="button" onClick={() => handleDeleteUt(ut.id)}
+                          className="text-xs font-medium text-red-500 hover:text-red-600">Hapus</button>
                       </div>
                     </div>
                   ))}
-                  {!detail.unitTypes?.length && <p className="text-sm text-gray-400">Belum ada unit type.</p>}
+                  {!detail.unitTypes?.length && <p className="text-sm text-gray-400">Belum ada unit type. Tambah dulu untuk mulai jual.</p>}
                 </div>
               </div>
             </div>
           </div>
         </div>
       )}
+      {/* Modal Unit Type Create/Edit */}
+      {utModal && detail && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">
+              {utEditing ? "Edit Unit Type" : "Tambah Unit Type"}
+            </h3>
+            <form onSubmit={handleUtSubmit} className="space-y-3 text-sm">
+              <div>
+                <label className="block text-gray-700 dark:text-gray-300 mb-1">Nama Unit Type *</label>
+                <input type="text" required value={utName} onChange={(e) => setUtName(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  placeholder="Tenda Deluxe / Cabin Family" />
+              </div>
+              <div>
+                <label className="block text-gray-700 dark:text-gray-300 mb-1">Deskripsi</label>
+                <input type="text" value={utDescription} onChange={(e) => setUtDescription(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  placeholder="Tenda double size, kasur busa, listrik..." />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1">Kapasitas *</label>
+                  <input type="number" required min="1" value={utCapacity}
+                    onChange={(e) => setUtCapacity(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1">Harga Weekday *</label>
+                  <input type="number" required min="0" value={utWeekdayPrice}
+                    onChange={(e) => setUtWeekdayPrice(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    placeholder="250000" />
+                </div>
+                <div>
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1">Harga Weekend *</label>
+                  <input type="number" required min="0" value={utWeekendPrice}
+                    onChange={(e) => setUtWeekendPrice(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    placeholder="350000" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-800">
+                <button type="button" onClick={() => setUtModal(false)}
+                  className="w-1/2 rounded-xl border border-gray-300 px-4 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-300">Batal</button>
+                <button type="submit" disabled={utSubmitting}
+                  className="w-1/2 rounded-xl bg-brand-500 px-4 py-2 font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
+                  {utSubmitting ? "Saving..." : "Simpan"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Manage Units (Physical Units/Tenda) */}
+      {unitsModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 dark:text-white">Kelola Unit Fisik</h3>
+                <p className="text-xs text-gray-400">Type: {unitsModal.name} · Total {unitsModal.totalUnits} unit</p>
+              </div>
+              <button onClick={() => { setUnitsModal(null); setUnitEditing(null); }} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+
+            {/* Add/Edit Unit Form */}
+            <form onSubmit={handleUnitSubmit} className="flex gap-2 mb-4">
+              <input type="text" required placeholder="Kode unit (A-01)" value={unitCode}
+                onChange={(e) => setUnitCode(e.target.value.toUpperCase())}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white uppercase" />
+              <input type="text" placeholder="Nama opsional" value={unitName}
+                onChange={(e) => setUnitName(e.target.value)}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              <select value={unitStatus}
+                onChange={(e) => setUnitStatus(e.target.value)}
+                className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                <option value="AVAILABLE">AVAILABLE</option>
+                <option value="MAINTENANCE">MAINTENANCE</option>
+                <option value="INACTIVE">INACTIVE</option>
+              </select>
+              <button type="submit"
+                className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white hover:bg-brand-600">
+                {unitEditing ? "Update" : "Tambah"}
+              </button>
+            </form>
+
+            {unitLoading && <p className="text-xs text-gray-400 mb-3">Loading units...</p>}
+
+            <div className="space-y-2">
+              {units.map((u) => (
+                <div key={u.id} className="flex justify-between items-center p-3 rounded-lg border border-gray-100 dark:border-gray-800 text-sm">
+                  <div>
+                    <span className="font-semibold text-gray-800 dark:text-white/90">{u.code}</span>
+                    {u.name && <span className="text-gray-400 text-xs ml-2">{u.name}</span>}
+                    {u.notes && <span className="text-gray-400 text-xs ml-1">({u.notes})</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 text-[10px] rounded font-medium ${u.status === "AVAILABLE" ? "bg-green-100 text-green-800" : u.status === "MAINTENANCE" ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-500"}`}>
+                      {u.status}
+                    </span>
+                    <button type="button" onClick={() => {
+                      setUnitEditing(u);
+                      setUnitCode(u.code);
+                      setUnitName(u.name || "");
+                      setUnitStatus(u.status);
+                    }} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Edit</button>
+                    <button type="button" onClick={() => handleDeleteUnit(u.id)}
+                      className="text-xs text-red-500 hover:text-red-600 font-medium">Hapus</button>
+                  </div>
+                </div>
+              ))}
+              {!units.length && !unitLoading && (
+                <p className="text-sm text-gray-400 text-center py-4">Belum ada unit fisik. Tambah unit (tenda/cabin) diatas.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
