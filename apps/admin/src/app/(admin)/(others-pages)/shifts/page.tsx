@@ -1,54 +1,86 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { $api } from "@/lib/api";
-import { useAuth } from "@/context/AuthContext";
 
 type Shift = {
   id: string;
+  propertyId: string;
+  propertyName: string;
+  openedAt: string;
+  openingCash: string;
+  cashSales: string;
+  transferSales: string;
+  qrisSales: string;
+  expectedCash: string;
   status: string;
-  startTime: string;
-  endTime: string | null;
-  startCash: string;
-  endCash: string | null;
-  staff: { name: string };
 };
 
 type ShiftReport = {
-  shiftInfo: {
+  id: string;
+  staff: { id: string; name: string };
+  property: { id: string; name: string };
+  openedAt: string;
+  closedAt: string | null;
+  walkInCount: number;
+  selfReservationCount: number;
+  totalCashSales: string;
+  totalTransferSales: string;
+  totalQrisSales: string;
+  totalTransactions: number;
+  openingCash: string;
+  expectedClosingCash: string;
+  actualClosingCash: string | null;
+  difference: string | null;
+  notes: string | null;
+  payments: Array<{
     id: string;
-    startTime: string;
-    endTime: string | null;
+    bookingCode: string | null;
+    method: string;
+    amount: string;
     status: string;
-    staffName: string;
-  };
-  financial: {
-    startCash: string;
-    cashPaymentsReceived: string;
-    expectedEndCash: string;
-    actualEndCash: string | null;
-    cashDifference: string;
-  };
-  transactions: {
-    totalCashPayments: number;
-  };
+    paidAt: string;
+  }>;
 };
 
+type Property = { id: string; name: string; code: string };
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 export default function ShiftsPage() {
-  const { user } = useAuth();
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
   const [startCash, setStartCash] = useState("");
   const [endCash, setEndCash] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const loadCurrentShift = () => {
+  // Load properties (accessible by all roles including staff)
+  useEffect(() => {
+    $api
+      .getList<Property>("/properties?limit=100")
+      .then((res) => {
+        setProperties(res.data);
+        if (res.data.length > 0) setSelectedPropertyId(res.data[0].id);
+      })
+      .catch(console.error);
+  }, []);
+
+  const loadReport = useCallback((shiftId: string) => {
+    $api
+      .get<ShiftReport>(`/staff/shifts/${shiftId}/report`)
+      .then((res) => setReport(res))
+      .catch(() => setCurrentShift(null));
+  }, []);
+
+  const loadCurrentShift = useCallback(() => {
+    if (!selectedPropertyId) return;
     setLoading(true);
     $api
-      .get<Shift>("/staff/shifts/current")
+      .get<Shift>(`/staff/shifts/current?propertyId=${selectedPropertyId}`)
       .then((res) => {
         setCurrentShift(res);
         if (res) {
@@ -56,37 +88,29 @@ export default function ShiftsPage() {
         }
       })
       .catch((e) => {
-        if (e.message.includes("NOT_FOUND")) {
-          setCurrentShift(null);
-        } else {
-          setError(e.message);
+        if (!e.message.includes("NOT_FOUND")) {
+          console.error(e);
         }
+        setCurrentShift(null);
       })
       .finally(() => setLoading(false));
-  };
-
-  const loadReport = (shiftId: string) => {
-    $api
-      .get<ShiftReport>(`/staff/shifts/${shiftId}/report`)
-      .then((res) => setReport(res))
-      .catch(console.error);
-  };
+  }, [selectedPropertyId, loadReport]);
 
   useEffect(() => {
     loadCurrentShift();
-  }, []);
+  }, [loadCurrentShift]);
 
   const handleOpenShift = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!startCash) return;
+    if (!selectedPropertyId || !startCash) return;
     setActionLoading(true);
     try {
-      await $api.post("/staff/shifts/open", { startCash: Number(startCash) });
+      await $api.post("/staff/shifts/open", { propertyId: selectedPropertyId, openingCash: Number(startCash) });
       alert("Shift berhasil dibuka!");
       setStartCash("");
       loadCurrentShift();
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (e) {
+      alert("Error: " + errMsg(e));
     } finally {
       setActionLoading(false);
     }
@@ -98,13 +122,13 @@ export default function ShiftsPage() {
     if (!confirm("Tutup shift sekarang?")) return;
     setActionLoading(true);
     try {
-      await $api.post(`/staff/shifts/${currentShift.id}/close`, { endCash: Number(endCash) });
+      await $api.post(`/staff/shifts/${currentShift.id}/close`, { actualClosingCash: Number(endCash) });
       alert("Shift berhasil ditutup!");
       setEndCash("");
       setReport(null);
       loadCurrentShift();
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (e) {
+      alert("Error: " + errMsg(e));
     } finally {
       setActionLoading(false);
     }
@@ -120,6 +144,24 @@ export default function ShiftsPage() {
       <div className="col-span-12">
         <h2 className="text-xl font-bold text-gray-800 dark:text-white/90">Staff Shift Management</h2>
         <p className="text-sm text-gray-500">Manajemen buka/tutup kasir dan laporan shift tunai.</p>
+      </div>
+
+      {/* Property Selector */}
+      <div className="col-span-12 md:col-span-6">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
+          <h3 className="font-semibold text-gray-800 dark:text-white/90 mb-4">Pilih Properti</h3>
+          <select
+            value={selectedPropertyId}
+            onChange={(e) => setSelectedPropertyId(e.target.value)}
+            className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+          >
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.code})
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {!currentShift ? (
@@ -174,7 +216,7 @@ export default function ShiftsPage() {
                   </span>
                   <div>
                     <h3 className="font-semibold text-brand-800 dark:text-brand-300">Shift Kasir Aktif</h3>
-                    <p className="text-xs text-brand-600/70 dark:text-brand-400/70">Staff: {currentShift.staff?.name}</p>
+                    <p className="text-xs text-brand-600/70 dark:text-brand-400/70">Properti: {currentShift.propertyName}</p>
                   </div>
                 </div>
                 <span className="animate-pulse rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
@@ -185,11 +227,11 @@ export default function ShiftsPage() {
               <div className="grid grid-cols-2 gap-4 text-sm mb-6">
                 <div>
                   <span className="block text-xs text-brand-600/70 dark:text-brand-400/70">Mulai Shift</span>
-                  <span className="font-medium text-brand-900 dark:text-brand-100">{fmtTime(currentShift.startTime)}</span>
+                  <span className="font-medium text-brand-900 dark:text-brand-100">{fmtTime(currentShift.openedAt)}</span>
                 </div>
                 <div>
                   <span className="block text-xs text-brand-600/70 dark:text-brand-400/70">Kasir Awal</span>
-                  <span className="font-medium text-brand-900 dark:text-brand-100">{fmtRp(currentShift.startCash)}</span>
+                  <span className="font-medium text-brand-900 dark:text-brand-100">{fmtRp(currentShift.openingCash)}</span>
                 </div>
               </div>
 
@@ -230,15 +272,15 @@ export default function ShiftsPage() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800 text-sm">
                     <span className="text-gray-500">Saldo Awal</span>
-                    <span className="font-medium text-gray-800 dark:text-white/90">{fmtRp(report.financial.startCash)}</span>
+                    <span className="font-medium text-gray-800 dark:text-white/90">{fmtRp(report.openingCash)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800 text-sm">
-                    <span className="text-gray-500">Pemasukan Tunai Hari Ini ({report.transactions.totalCashPayments} trx)</span>
-                    <span className="font-medium text-green-600">+{fmtRp(report.financial.cashPaymentsReceived)}</span>
+                    <span className="text-gray-500">Pemasukan Tunai Hari Ini ({report.totalTransactions} trx)</span>
+                    <span className="font-medium text-green-600">+{fmtRp(report.totalCashSales)}</span>
                   </div>
                   <div className="flex justify-between items-center py-3 bg-gray-50 dark:bg-gray-800/50 px-3 rounded-lg text-sm mt-4">
                     <span className="font-medium text-gray-700 dark:text-gray-300">Ekspektasi Uang Fisik (Sistem)</span>
-                    <span className="font-bold text-gray-900 dark:text-white text-base">{fmtRp(report.financial.expectedEndCash)}</span>
+                    <span className="font-bold text-gray-900 dark:text-white text-base">{fmtRp(report.expectedClosingCash)}</span>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">
                     Harap pastikan jumlah uang fisik di kasir sesuai dengan nilai ekspektasi sistem sebelum menutup shift.

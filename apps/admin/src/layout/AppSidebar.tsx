@@ -7,6 +7,7 @@ import { useSidebar } from "../context/SidebarContext";
 import {
   BoxCubeIcon,
   CalenderIcon,
+  CheckCircleIcon,
   ChevronDownIcon,
   GridIcon,
   HorizontaLDots,
@@ -33,6 +34,11 @@ const navItems: NavItem[] = [
     path: "/",
   },
   {
+    icon: <PageIcon />,
+    name: "Cek Booking Kode",
+    path: "/check-in",
+  },
+  {
     icon: <ListIcon />,
     name: "Bookings",
     path: "/bookings",
@@ -51,6 +57,11 @@ const navItems: NavItem[] = [
     icon: <TableIcon />,
     name: "Properties & Units",
     path: "/properties",
+  },
+  {
+    icon: <CheckCircleIcon />,
+    name: "Facilities",
+    path: "/facilities",
   },
   {
     icon: <UserCircleIcon />,
@@ -327,26 +338,9 @@ const AppSidebar: React.FC = () => {
               </h2>
               {renderMenuItems(navItems, "main")}
             </div>
-
-            <div className="">
-              <h2
-                className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${
-                  !isExpanded && !isHovered
-                    ? "lg:justify-center"
-                    : "justify-start"
-                }`}
-              >
-                {isExpanded || isHovered || isMobileOpen ? (
-                  "Others"
-                ) : (
-                  <HorizontaLDots />
-                )}
-              </h2>
-              {renderMenuItems(othersItems, "others")}
-            </div>
           </div>
         </nav>
-        {isExpanded || isHovered || isMobileOpen ? <SidebarWidget /> : null}
+              {isExpanded || isHovered || isMobileOpen ? null : null}
       </div>
     </aside>
   );

@@ -5,6 +5,7 @@ import { requireRole } from "@/middleware/role.middleware";
 import { validate } from "@/middleware/validation.middleware";
 import { CreatePropertySchema, UpdatePropertySchema, SetPropertyFacilitiesSchema } from "./property.schema";
 import {
+  listProperties,
   createProperty,
   updateProperty,
   deactivateProperty,
@@ -17,6 +18,7 @@ const router = new Hono<{ Variables: Variables }>();
 router.use(authMiddleware);
 router.use(requireRole("OWNER"));
 
+router.get("/properties", listProperties);
 router.post("/properties", validate(CreatePropertySchema), createProperty);
 router.patch("/properties/:propertyId", validate(UpdatePropertySchema), updateProperty);
 router.patch("/properties/:propertyId/deactivate", deactivateProperty);

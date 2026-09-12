@@ -73,11 +73,23 @@ export class UnitTypeService {
     if (!exists) throw new NotFoundError("Unit type not found");
 
     const data: any = {};
-    if (input.name) { data.name = input.name; data.slug = slugify(input.name); }
+    if (input.name) {
+      data.name = input.name;
+      data.slug = slugify(input.name);
+    }
     if (input.description !== undefined) data.description = input.description;
     if (input.capacity !== undefined) data.capacity = input.capacity;
     if (input.weekdayPrice !== undefined) data.weekdayPrice = BigInt(input.weekdayPrice);
     if (input.weekendPrice !== undefined) data.weekendPrice = BigInt(input.weekendPrice);
+
+    if (input.facilityIds !== undefined) {
+      await prisma.unitTypeFacility.deleteMany({ where: { unitTypeId: id } });
+      if (input.facilityIds.length) {
+        data.facilities = {
+          create: input.facilityIds.map((facilityId) => ({ facilityId })),
+        };
+      }
+    }
 
     return prisma.unitType.update({ where: { id }, data });
   }

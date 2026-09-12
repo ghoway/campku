@@ -92,7 +92,7 @@ export default function DashboardPage() {
       {!loading && !stats && (
         <div className="col-span-12 rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
           <p className="text-sm text-gray-500">
-            Dashboard stats belum tersedia. Pastikan backend running di <code>localhost:8080</code> dan endpoint <code>/admin/dashboard</code> accessible. Data booking bisa dilihat di menu <strong>Bookings</strong>.
+            Dashboard stats belum tersedia. Pastikan backend server running dan endpoint <code>/admin/dashboard</code> accessible. Data booking bisa dilihat di menu <strong>Bookings</strong>.
           </p>
         </div>
       )}

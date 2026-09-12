@@ -17,5 +17,5 @@ export const CreatePropertySchema = z.object({
 export const UpdatePropertySchema = CreatePropertySchema.partial();
 
 export const SetPropertyFacilitiesSchema = z.object({
-  facilityIds: z.array(z.string().uuid()).min(1),
+  facilityIds: z.array(z.string().uuid()),
 });

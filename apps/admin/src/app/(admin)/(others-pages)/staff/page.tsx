@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import { $api } from "@/lib/api";
-import Link from "next/link";
 
 type Staff = {
   id: string;
@@ -15,6 +14,8 @@ type Staff = {
 };
 
 type Property = { id: string; name: string };
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default function StaffPage() {
   const [staffs, setStaffs] = useState<Staff[]>([]);
@@ -77,8 +78,8 @@ export default function StaffPage() {
         await $api.patch(`/admin/staff/${editing.id}`, {
           name,
           phone: phone || undefined,
-          propertyIds,
         });
+        await $api.put(`/admin/staff/${editing.id}/properties`, { propertyIds });
         alert("Data staff berhasil diupdate!");
       } else {
         await $api.post("/admin/staff", {
@@ -93,8 +94,8 @@ export default function StaffPage() {
       setShowModal(false);
       resetForm();
       loadData();
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (e) {
+      alert("Error: " + errMsg(e));
     } finally {
       setSubmitting(false);
     }
@@ -106,8 +107,8 @@ export default function StaffPage() {
     try {
       await $api.post(`/admin/staff/${s.id}/${action}`, {});
       loadData();
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (e) {
+      alert("Error: " + errMsg(e));
     }
   };
 
