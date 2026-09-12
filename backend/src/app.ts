@@ -10,6 +10,7 @@ import propertyRoutes from "@/modules/properties/property.routes";
 import adminRoutes from "@/modules/admin/admin.routes";
 import facilityRoutes from "@/modules/facilities/facility.routes";
 import bookingRoutes, { staffBookingRouter } from "@/modules/bookings/booking.routes";
+import staffUnitTypeRoutes from "@/modules/unit-types/unit-type-staff.routes";
 import midtransRoutes from "@/modules/payments/midtrans.routes";
 import meRoutes from "@/modules/users/me.routes";
 import shiftRoutes from "@/modules/shifts/shift.routes";
@@ -54,6 +55,7 @@ api.route("/facilities", facilityRoutes);
 api.route("/bookings", bookingRoutes);
 api.route("/staff/bookings", staffBookingRouter);
 api.route("/staff/shifts", shiftRoutes);
+api.route("/staff", staffUnitTypeRoutes);
 
 api.route("/me", meRoutes);
 api.route("/reviews", reviewRoutes);

@@ -297,6 +297,7 @@ const routes: RouteDef[] = [
   { method: "post", path: "/api/v1/staff/bookings/{bookingId}/check-in", tag: "Bookings - Staff", summary: "Check a booking in", security: true, pathParams: UUID("Booking UUID") },
   { method: "post", path: "/api/v1/staff/bookings/{bookingId}/check-out", tag: "Bookings - Staff", summary: "Check a booking out", security: true, pathParams: UUID("Booking UUID") },
   { method: "put", path: "/api/v1/staff/bookings/{bookingId}/unit-allocation", tag: "Bookings - Staff", summary: "Assign units to booking items", security: true, pathParams: UUID("Booking UUID"), body: named("UnitAllocationSchema") },
+  { method: "get", path: "/api/v1/staff/unit-types/{unitTypeId}/units", tag: "Bookings - Staff", summary: "List units of a unit type (for check-in allocation)", security: true, pathParams: UUID("Unit type UUID") },
 
   // ---- Midtrans
   { method: "post", path: "/api/v1/bookings/{bookingId}/payment/create", tag: "Midtrans", summary: "Create a Midtrans Snap payment token + URL", security: true, pathParams: UUID("Booking UUID") },

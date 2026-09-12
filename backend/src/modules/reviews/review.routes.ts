@@ -11,6 +11,8 @@ import {
   updateReviewStatus,
   deleteReview,
 } from "./review.controller";
+import { prisma } from "@/config/database";
+import { ok } from "@/shared/utils/response";
 
 // Sub-route di /properties/:propertyId/reviews (public)
 const propertyReviews = new Hono<{ Variables: Variables }>();
@@ -29,6 +31,21 @@ me.get("/", listMyReviews);
 const admin = new Hono<{ Variables: Variables }>();
 admin.use(authMiddleware);
 admin.use(requireRole("OWNER"));
+
+admin.get("/", async (c) => {
+  const status = c.req.query("status");
+  const propertyId = c.req.query("propertyId");
+  const where: any = {};
+  if (status) where.status = status;
+  if (propertyId) where.propertyId = propertyId;
+  const reviews = await prisma.review.findMany({
+    where,
+    include: { user: { select: { id: true, name: true, email: true } }, property: { select: { id: true, name: true } }, booking: { select: { id: true, bookingCode: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return ok(c, reviews);
+});
+
 admin.patch("/reviews/:reviewId", updateReviewStatus);
 admin.delete("/reviews/:reviewId", deleteReview);
 

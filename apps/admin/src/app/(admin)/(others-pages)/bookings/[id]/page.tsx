@@ -4,6 +4,8 @@ import React, { useEffect, useState, use } from "react";
 import { $api } from "@/lib/api";
 import Link from "next/link";
 
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 type Unit = { id: string; code: string; name: string | null; status: string };
 type BookingItemUnit = { id: string; unit: Unit; allocatedAt: string };
 type BookingItem = {
@@ -85,7 +87,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   const doAction = async (fn: () => Promise<void>, msg: string) => {
     setActionLoading(true);
     try { await fn(); alert(msg); loadData(); }
-    catch (e: any) { alert("Error: " + e.message); }
+    catch (e) { alert("Error: " + errMsg(e)); }
     finally { setActionLoading(false); }
   };
 
@@ -115,9 +117,9 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
     setAllocModalItem(item);
     setSelectedUnitIds(item.units.map((u) => u.unit.id));
     try {
-      // Fetch available units for this unit type
-      const ut = await $api.get<{ units: Unit[] }>(`/admin/unit-types/${item.unitTypeId}`);
-      setAvailableUnits((ut.units || []).filter((u) => u.status === "AVAILABLE"));
+      // Fetch available units for this unit type (staff-safe endpoint)
+      const units = await $api.get<Unit[]>(`/staff/unit-types/${item.unitTypeId}/units`);
+      setAvailableUnits((units || []).filter((u) => u.status === "AVAILABLE"));
     } catch {
       setAvailableUnits([]);
     }
@@ -143,8 +145,8 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
       alert("Unit berhasil dialokasikan!");
       setAllocModalItem(null);
       loadData();
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (e) {
+      alert("Error: " + errMsg(e));
     } finally {
       setAllocLoading(false);
     }

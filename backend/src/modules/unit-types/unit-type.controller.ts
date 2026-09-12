@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { UnitTypeService } from "./unit-type.service";
 import { prisma } from "@/config/database";
-import { NotFoundError } from "@/shared/errors";
+import { NotFoundError, ForbiddenError } from "@/shared/errors";
 import { ok, created } from "@/shared/utils/response";
 
 const service = new UnitTypeService();
@@ -39,6 +39,24 @@ export async function deleteUnitType(c: Context) {
 // Units
 export async function listUnits(c: Context) {
   const data = await service.listUnits(getUtId(c));
+  return ok(c, data);
+}
+
+export async function listUnitsForStaff(c: Context) {
+  const unitTypeId = c.req.param("unitTypeId") ?? "";
+  const user = c.get("user");
+
+  const ut = await prisma.unitType.findUnique({ where: { id: unitTypeId } });
+  if (!ut) throw new NotFoundError("Unit type not found");
+
+  if (user.role === "STAFF") {
+    const assignment = await prisma.staffPropertyAssignment.findFirst({
+      where: { userId: user.id, propertyId: ut.propertyId, isActive: true },
+    });
+    if (!assignment) throw new ForbiddenError("Not assigned to this property");
+  }
+
+  const data = await service.listUnits(unitTypeId);
   return ok(c, data);
 }
 
